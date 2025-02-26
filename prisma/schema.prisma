@@ -1,0 +1,46 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model VerifyReferral {
+  id            Int      @id @default(autoincrement())
+  referrerName  String
+  referrerEmail String   @unique
+  otp           String?
+  otpVerified   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Referrer {
+  id              Int      @id @default(autoincrement())
+  referrerName    String
+  referrerEmail   String   @unique
+  referrerPhone   String?
+  referralMessage String?
+  howDidYouHear   String?
+  termsAccepted   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  referees        Referee[]
+}
+
+model Referee {
+  id           Int      @id @default(autoincrement())
+  referrerId   Int
+  refereeName  String
+  refereeEmail String
+  refereePhone String?
+  course       String
+  startDate    DateTime?
+  relationship String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  referrer     Referrer @relation(fields: [referrerId], references: [id])
+}
