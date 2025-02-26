@@ -9,7 +9,6 @@ This is the backend service for the **Refer & Earn** application built with mode
 - **Prisma ORM**: Next-generation ORM for database operations 
 - **MySQL**: Relational database for data persistence
 - **Nodemailer**: Email service integration for notifications
-- **JWT**: JSON Web Tokens for secure authentication
 - **Frontend**: Compatible with TailwindCSS or Material-UI frameworks
 
 ## **Project Structure**
@@ -105,61 +104,16 @@ backend/
 
 1. **Start the server:**
    ```bash
-   npm start
+   node server.js
    ```
 
 2. **Development mode with auto-reload:**
    ```bash
-   npm run dev
+   nodemon server.js
    ```
 
-## **Prisma Commands**
 
-- **Generate client after schema changes:**
-  ```bash
-  npx prisma generate
-  ```
 
-- **Create and apply new migration:**
-  ```bash
-  npx prisma migrate dev --name <migration_name>
-  ```
-
-- **Reset database (caution - destroys data):**
-  ```bash
-  npx prisma migrate reset
-  ```
-
-## **API Endpoints**
-
-### Referral Management
-
-- **Create Referral**
-  - `POST /api/refer`
-  - Description: Generate a new referral link for a user
-  - Request Body:
-    ```json
-    {
-      "email": "referrer@example.com",
-      "name": "John Doe"
-    }
-    ```
-  - Response: Referral code and status
-
-### Verification
-
-- **Verify Referred User**
-  - `POST /api/verify`
-  - Description: Verify a user who was referred through a referral link
-  - Request Body:
-    ```json
-    {
-      "referralCode": "ABC123",
-      "email": "referred@example.com",
-      "name": "Jane Smith"
-    }
-    ```
-  - Response: Verification status and rewards info
 
 ## **Deployment**
 
@@ -176,14 +130,3 @@ The backend can be deployed on cloud platforms like Render, Heroku, or AWS:
    - Use a managed MySQL service like PlanetScale, AWS RDS, or Railway
    - Update the `DATABASE_URL` environment variable accordingly
 
-## **Contributing**
-
-1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/AmazingFeature`
-3. Commit your changes: `git commit -m 'Add some AmazingFeature'`
-4. Push to the branch: `git push origin feature/AmazingFeature`
-5. Open a Pull Request
-
-## **License**
-
-This project is licensed under the MIT License - see the LICENSE file for details.
