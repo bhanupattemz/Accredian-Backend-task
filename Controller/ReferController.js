@@ -8,48 +8,62 @@ module.exports.refer = WrapAsync(async (req, res, next) => {
     const bodyData = req.body;
 
     try {
-       
-        const result = await prisma.$transaction(async (prisma) => {
-           
-            const verifyReferral = await prisma.verifyReferral.findUnique({
-                where: { referrerEmail: bodyData.referrer_email }
+        if (!bodyData.refereeEmail || !bodyData.referrerEmail) {
+            throw new ExpressError("Missing required email fields", 400);
+        }
+
+        const validCourses = ['WEB_DEVELOPMENT', 'DATA_SCIENCE', 'MACHINE_LEARNING', 
+                             'MOBILE_APP_DEVELOPMENT', 'CYBER_SECURITY', 'CLOUD_COMPUTING', 
+                             'DIGITAL_MARKETING', 'UI_UX_DESIGN', 'SOFTWARE_TESTING', 
+                             'ARTIFICIAL_INTELLIGENCE'];
+        
+        if (!validCourses.includes(bodyData.course)) {
+            throw new ExpressError(`Invalid course type. Must be one of: ${validCourses.join(', ')}`, 400);
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const verifyReferral = await tx.verifyReferral.findUnique({
+                where: { referrerEmail: bodyData.referrerEmail }
             });
 
             if (!verifyReferral || !verifyReferral.otpVerified) {
-                throw new ExpressError("Mail not verified", 400);
+                throw new ExpressError("Email not verified", 400);
             }
-            let referrer = await prisma.referrer.findUnique({
-                where: { referrerEmail: bodyData.referrer_email }
+
+            let referrer = await tx.referrer.findUnique({
+                where: { referrerEmail: bodyData.referrerEmail }
             });
 
             if (!referrer) {
-                referrer = await prisma.referrer.create({
+                referrer = await tx.referrer.create({
                     data: {
-                        referrerName: bodyData.referrer_name,
-                        referrerEmail: bodyData.referrer_email,
-                        referrerPhone: bodyData.referrer_phone,
-                        referralMessage: bodyData.referral_message,
-                        howDidYouHear: bodyData.how_did_you_hear,
-                        termsAccepted: bodyData.terms_accepted
+                        referrerName: bodyData.referrerName,
+                        referrerEmail: bodyData.referrerEmail,
+                        referrerPhone: bodyData.referrerPhone || null,
+                        referralMessage: bodyData.referralMessage || null,
+                        howDidYouHear: bodyData.howDidYouHear || null,
+                        termsAccepted: bodyData.termsAccepted || false
                     }
                 });
             } else {
-                await prisma.referrer.update({
-                    where: { referrerEmail: bodyData.referrer_email },
+             
+                await tx.referrer.update({
+                    where: { referrerEmail: bodyData.referrerEmail },
                     data: {
-                        referrerName: bodyData.referrer_name,
-                        referrerPhone: bodyData.referrer_phone,
-                        referralMessage: bodyData.referral_message,
-                        howDidYouHear: bodyData.how_did_you_hear,
-                        termsAccepted: bodyData.terms_accepted
+                        referrerName: bodyData.referrerName,
+                        referrerPhone: bodyData.referrerPhone || referrer.referrerPhone,
+                        referralMessage: bodyData.referralMessage || referrer.referralMessage,
+                        howDidYouHear: bodyData.howDidYouHear || referrer.howDidYouHear,
+                        termsAccepted: bodyData.termsAccepted || referrer.termsAccepted
                     }
                 });
             }
 
-            const existingReferee = await prisma.referee.findFirst({
+            
+            const existingReferee = await tx.referee.findFirst({
                 where: {
                     referrerId: referrer.id,
-                    refereeEmail: bodyData.referee_email
+                    refereeEmail: bodyData.refereeEmail
                 }
             });
 
@@ -57,45 +71,61 @@ module.exports.refer = WrapAsync(async (req, res, next) => {
                 throw new ExpressError("Referee has already been referred by this referrer", 400);
             }
 
-            await prisma.verifyReferral.delete({
-                where: { referrerEmail: bodyData.referrer_email }
-            });
-
-            
-            await prisma.referee.create({
+            const referee = await tx.referee.create({
                 data: {
                     referrerId: referrer.id,
-                    refereeName: bodyData.referee_name,
-                    refereeEmail: bodyData.referee_email,
-                    refereePhone: bodyData.referee_phone,
+                    refereeName: bodyData.refereeName,
+                    refereeEmail: bodyData.refereeEmail,
+                    refereePhone: bodyData.refereePhone || null,
                     course: bodyData.course,
-                    startDate: new Date(bodyData.start_date),
+                    startDate: bodyData.startDate ? new Date(bodyData.startDate) : null,
                     relationship: bodyData.relationship
                 }
             });
 
-            const referrerData = await sendMail(referrerMail(bodyData));
-            const refereeData = await sendMail(refereeMail(bodyData));
+            await tx.verifyReferral.delete({
+                where: { referrerEmail: bodyData.referrerEmail }
+            });
 
-            if (!refereeData || !referrerData) {
-                throw new ExpressError("Failed to Send Email", 500);
-            }
-
-            return { success: true };
+            return { 
+                success: true, 
+                referrerId: referrer.id,
+                refereeId: referee.id
+            };
+        }, {
+            timeout: 15000
         });
+        const frontendUrl = process.env.FRONTEND_URL || 'https://example.com';
+        const referrerEmailData = referrerMail(bodyData, frontendUrl);
+        const refereeEmailData = refereeMail(bodyData, frontendUrl);
+
+        try {
+          
+            await Promise.all([
+                sendMail(referrerEmailData),
+                sendMail(refereeEmailData)
+            ]);
+        } catch (emailError) {
+            console.error("Failed to send email:", emailError);
+        }
+        
         res.status(200).json(result);
     } catch (err) {
-        console.error(err);
-        return next(new ExpressError(err.message || "Server Error", 500));
+        console.error("Referral error:", err);
+        return next(new ExpressError(err.message || "Server Error", err.status || 500));
     }
 });
+const referrerMail = (bodyData, frontendUrl) => {
+    const formattedDate = new Date(bodyData.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
 
-
-const referrerMail = (bodyData) => {
     return {
-        mail: bodyData.referrer_email,
-        subject: `Your Referral to ${bodyData.referee_name} was Successful!`,
-        text: `Your referral to ${bodyData.referee_name} for ${bodyData.course} was successful`,
+        mail: bodyData.referrerEmail,
+        subject: `Your Referral to ${bodyData.refereeName} was Successful!`,
+        text: `Your referral to ${bodyData.refereeName} for ${bodyData.course} was successful`,
         message: `
             <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%); padding: 25px; text-align: center; border-radius: 12px 12px 0 0;">
@@ -104,25 +134,26 @@ const referrerMail = (bodyData) => {
                 </div>
                 
                 <div style="padding: 32px; background-color: white; border-radius: 0 0 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);">
-                    <p style="font-size: 17px;">Dear ${bodyData.referrer_name},</p>
+                    <p style="font-size: 17px;">Dear ${bodyData.referrerName},</p>
                     
                     <div style="background-color: #f4f7ff; border-left: 4px solid #6366F1; padding: 15px; margin: 25px 0; border-radius: 0 8px 8px 0;">
                         <p style="margin: 0; font-size: 16px;">
-                            <span style="font-weight: bold; color: #6366F1;">Great news!</span> Your referral of <span style="font-weight: bold;">${bodyData.referee_name}</span> for the 
-                            <span style="font-weight: bold; color: #6366F1;">${bodyData.course}</span> course was successful!
+                            <span style="font-weight: bold; color: #6366F1;">Great news!</span> Your referral of <span style="font-weight: bold;">${bodyData.refereeName}</span> for the 
+                            <span style="font-weight: bold; color: #6366F1;">${bodyData.course.replace(/_/g, ' ').toLowerCase()}</span> course was successful!
                         </p>
                     </div>
                     
-                    <p style="font-size: 16px;">We've sent ${bodyData.referee_name} a confirmation email with all the details they need. The course will start on <span style="font-weight: bold;">${bodyData.start_date}</span>.</p>
+                    <p style="font-size: 16px;">We've sent ${bodyData.refereeName} a confirmation email with all the details they need. 
+                    ${bodyData.startDate ? `The course will start on <span style="font-weight: bold;">${formattedDate}</span>.` : ''}</p>
                     
                     <div style="background-color: #f9fafb; border-radius: 8px; padding: 18px; margin: 25px 0; border: 1px dashed #d1d5db;">
                         <p style="margin: 0; text-align: center; font-size: 15px;">
-                            <span style="color: #6366F1; font-weight: bold;">Remember:</span> You'll receive your referral bonus once ${bodyData.referee_name} completes their enrollment process.
+                            <span style="color: #6366F1; font-weight: bold;">Remember:</span> You'll receive your referral bonus once ${bodyData.refereeName} completes their enrollment process.
                         </p>
                     </div>
                     
                     <div style="margin-top: 30px; text-align: center;">
-                        <a href=${process.env.FRONTEND_URL} style="
+                        <a href="${frontendUrl}" style="
                             display: inline-block;
                             background: linear-gradient(90deg, #6366F1 0%, #8B5CF6 100%);
                             color: white;
@@ -140,30 +171,36 @@ const referrerMail = (bodyData) => {
                     
                     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8;">
                         This is an automated message. Please do not reply to this email.
-                        <p style="margin-top: 8px; margin-bottom: 0;">© 2025 Refer & Earn. All rights reserved.</p>
+                        <p style="margin-top: 8px; margin-bottom: 0;">© ${new Date().getFullYear()} Refer & Earn. All rights reserved.</p>
                     </div>
                 </div>
             </div>
         `
     };
-}
+};
 
-const refereeMail = (bodyData) => {
-    const referralMessageSection = bodyData.referral_message ? `
+const refereeMail = (bodyData, frontendUrl) => {
+    const formattedDate = bodyData.startDate ? new Date(bodyData.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    }) : 'the scheduled date';
+
+    const referralMessageSection = bodyData.referralMessage ? `
         <div style="background-color: #f4f7ff; border-left: 4px solid #8B5CF6; padding: 15px; margin: 25px 0; border-radius: 0 8px 8px 0;">
             <p style="margin: 0; font-size: 16px; font-style: italic; color: #6366F1;">
-                <span style="font-weight: bold;">Message from ${bodyData.referrer_name}:</span>
+                <span style="font-weight: bold;">Message from ${bodyData.referrerName}:</span>
             </p>
             <p style="margin: 10px 0 0 0; font-size: 16px;">
-                "${bodyData.referral_message}"
+                "${bodyData.referralMessage}"
             </p>
         </div>
     ` : '';
 
     return {
-        mail: bodyData.referee_email,
-        subject: `You've Been Referred to Our ${bodyData.course} Course!`,
-        text: `${bodyData.referrer_name} has referred you to our ${bodyData.course} course`,
+        mail: bodyData.refereeEmail,
+        subject: `You've Been Referred to Our ${bodyData.course.replace(/_/g, ' ').toLowerCase()} Course!`,
+        text: `${bodyData.referrerName} has referred you to our ${bodyData.course.replace(/_/g, ' ').toLowerCase()} course`,
         message: `
             <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%); padding: 25px; text-align: center; border-radius: 12px 12px 0 0;">
@@ -172,21 +209,21 @@ const refereeMail = (bodyData) => {
                 </div>
                 
                 <div style="padding: 32px; background-color: white; border-radius: 0 0 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);">
-                    <p style="font-size: 17px;">Dear ${bodyData.referee_name},</p>
+                    <p style="font-size: 17px;">Dear ${bodyData.refereeName},</p>
                     
                     <div style="background-color: #f4f7ff; border-left: 4px solid #6366F1; padding: 15px; margin: 25px 0; border-radius: 0 8px 8px 0;">
                         <p style="margin: 0; font-size: 16px;">
-                            <span style="font-weight: bold; color: #6366F1;">Exciting news!</span> Your ${bodyData.relationship} <span style="font-weight: bold;">${bodyData.referrer_name}</span> has referred you to our 
-                            <span style="font-weight: bold; color: #6366F1;">${bodyData.course}</span> course!
+                            <span style="font-weight: bold; color: #6366F1;">Exciting news!</span> Your ${bodyData.relationship} <span style="font-weight: bold;">${bodyData.referrerName}</span> has referred you to our 
+                            <span style="font-weight: bold; color: #6366F1;">${bodyData.course.replace(/_/g, ' ').toLowerCase()}</span> course!
                         </p>
                     </div>
                     
                     ${referralMessageSection}
                     
-                    <p style="font-size: 16px;">We're thrilled to welcome you to our learning community. The ${bodyData.course} course will begin on <span style="font-weight: bold;">${bodyData.start_date}</span>.</p>
+                    <p style="font-size: 16px;">We're thrilled to welcome you to our learning community. The ${bodyData.course.replace(/_/g, ' ').toLowerCase()} course will begin on <span style="font-weight: bold;">${formattedDate}</span>.</p>
                     
                     <div style="margin-top: 30px; text-align: center;">
-                        <a href=${process.env.FRONTEND_URL} style="
+                        <a href="${frontendUrl}" style="
                             display: inline-block;
                             background: linear-gradient(90deg, #6366F1 0%, #8B5CF6 100%);
                             color: white;
@@ -200,16 +237,16 @@ const refereeMail = (bodyData) => {
                         ">Open Site</a>
                     </div>
                     
-                    <p style="margin-top: 20px; font-size: 15px; text-align: center; color: #555;">Please confirm your enrollment before <span style="font-weight: bold;">${bodyData.start_date}</span> to secure your spot.</p>
+                    <p style="margin-top: 20px; font-size: 15px; text-align: center; color: #555;">Please confirm your enrollment before <span style="font-weight: bold;">${formattedDate}</span> to secure your spot.</p>
                     
                     <p style="margin-top: 30px; color: #555;">Looking forward to seeing you in class!<br><span style="font-weight: bold;">Refer & Earn Team</span></p>
                     
                     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8;">
                         This is an automated message. Please do not reply to this email.
-                        <p style="margin-top: 8px; margin-bottom: 0;">© 2025 Refer & Earn. All rights reserved.</p>
+                        <p style="margin-top: 8px; margin-bottom: 0;">© ${new Date().getFullYear()} Refer & Earn. All rights reserved.</p>
                     </div>
                 </div>
             </div>
         `
     };
-}
+};

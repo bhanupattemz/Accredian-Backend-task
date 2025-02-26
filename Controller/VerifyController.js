@@ -52,6 +52,7 @@ module.exports.generate = WrapAsync(async (req, res, next) => {
             where: { referrerEmail: mail }
         });
 
+
         if (!existingReferral) {
             await prisma.verifyReferral.create({
                 data: {
@@ -107,7 +108,7 @@ module.exports.verify = WrapAsync(async (req, res, next) => {
             where: { referrerEmail: mail }
         });
 
-        const data = referrerDetails || {
+        const data = referrerDetails && referrerDetails.length > 0 ? referrerDetails.length : {
             referrerEmail: mail,
             referrerName: existingReferral.referrerName
         };

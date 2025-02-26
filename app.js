@@ -17,6 +17,7 @@ app.use("/*", (req, res, next) => {
 
 app.use((err, req, res, next) => {
     const { statusCode = 500 } = err
+    console.log(err)
     if (!err.message) err.message = "some thing wents Wrong";
     res.status(statusCode).json({
         statusCode: err.statusCode,

@@ -7,6 +7,19 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum CourseType {
+  WEB_DEVELOPMENT
+  DATA_SCIENCE
+  MACHINE_LEARNING
+  MOBILE_APP_DEVELOPMENT
+  CYBER_SECURITY
+  CLOUD_COMPUTING
+  DIGITAL_MARKETING
+  UI_UX_DESIGN
+  SOFTWARE_TESTING
+  ARTIFICIAL_INTELLIGENCE
+}
+
 model VerifyReferral {
   id            Int      @id @default(autoincrement())
   referrerName  String
@@ -28,6 +41,8 @@ model Referrer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   referees        Referee[]
+
+  @@index([referrerEmail])  
 }
 
 model Referee {
@@ -36,11 +51,13 @@ model Referee {
   refereeName  String
   refereeEmail String
   refereePhone String?
-  course       String
+  course       CourseType
   startDate    DateTime?
   relationship String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   referrer     Referrer @relation(fields: [referrerId], references: [id])
+
+  @@index([referrerId])    
 }
